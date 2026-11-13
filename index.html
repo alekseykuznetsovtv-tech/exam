@@ -51,7 +51,7 @@
             alert("Ошибка в коде на строке " + line + ":\n" + msg);
         };
 
-        const MATCH_THRESHOLD = 0.4;
+        const MATCH_THRESHOLD = 0.55;
 
         // Пока здесь только 2 вопроса для теста!
         const database = [
@@ -1841,7 +1841,14 @@
     }
         ];
 
-        const fuse = new Fuse(database, { includeScore: true, threshold: 0.6, keys: ['q'] });
+       const fuse = new Fuse(database, { 
+    includeScore: true, 
+    threshold: 0.7,          // Базовый порог библиотеки
+    ignoreLocation: true,    // КРИТИЧЕСКИ ВАЖНО: отключает штраф за длину предложения
+    minMatchCharLength: 5,   // Игнорировать случайные шумы короче 5 букв
+    keys: ['q'] 
+});
+
         
         let recognition;
         try {
