@@ -1863,22 +1863,32 @@
             alert("Ошибка: " + err.message);
         }
 
-        let isListening = false;
+                let isListening = false;
         let hideTimeout;
         const statusDiv = document.getElementById('status');
         const answerDiv = document.getElementById('answer-display');
 
+        // === НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ СКЛЕИВАНИЯ ТЕКСТА ===
+        let speechBuffer = "";      // Сюда будут складываться куски фразы
+        let searchTimeout = null;   // Таймер ожидания
+        const PAUSE_TIME = 3500;    // Время ожидания в миллисекундах (3.5 секунды)
+
         function toggleListen() {
             if (!recognition) return;
 
-            if (isListening) {
-                isListening = false;
-                recognition.stop();
-                statusDiv.textContent = "Остановлено";
-            } else {
-                isListening = true;
-                recognition.start();
-                statusDiv.textContent = "Слушаю...";
+            try {
+                if (isListening) {
+                    isListening = false;
+                    recognition.stop();
+                    statusDiv.textContent = "Остановлено";
+                    speechBuffer = ""; // Очищаем буфер при остановке
+                } else {
+                    isListening = true;
+                    recognition.start();
+                    statusDiv.textContent = "Слушаю...";
+                }
+            } catch (err) {
+                alert("Ошибка при запуске: " + err.message);
             }
         }
 
@@ -1892,36 +1902,53 @@
             };
 
             recognition.onresult = (event) => {
-                // Берем услышанную фразу
+                // Получаем очередной кусок, который услышал браузер
                 const transcript = event.results[event.results.length - 1][0].transcript.trim();
                 
-                // ВЫВОДИМ ТО, ЧТО УСЛЫШАЛ ТЕЛЕФОН НА ЭКРАН
-                statusDiv.textContent = "Услышал: " + transcript;
+                // Приклеиваем его к нашему буферу через пробел
+                speechBuffer += " " + transcript;
                 
-                const results = fuse.search(transcript);
+                // Пишем на экране, что мы в процессе склеивания
+                statusDiv.textContent = "Накапливаю: " + speechBuffer.trim();
                 
-                if (results.length > 0) {
-                    if (results[0].score <= MATCH_THRESHOLD) {
-                        // Успех!
-                        statusDiv.textContent = "Нашел! (Точность: " + results[0].score.toFixed(2) + ")";
-                        answerDiv.textContent = results[0].item.a;
-                        answerDiv.style.opacity = 1;
-                        
-                        clearTimeout(hideTimeout);
-                        hideTimeout = setTimeout(() => {
-                            answerDiv.style.opacity = 0;
-                            statusDiv.textContent = "Слушаю...";
-                        }, 15000);
+                // Сбрасываем таймер. Пока ты говоришь, поиск не начнется!
+                clearTimeout(searchTimeout);
+                
+                // Заводим таймер заново. Если пройдет PAUSE_TIME (3.5 сек) и новых слов не будет — ищем!
+                searchTimeout = setTimeout(() => {
+                    
+                    const finalQuery = speechBuffer.trim();
+                    statusDiv.textContent = "Ищу полную фразу: " + finalQuery;
+                    
+                    const results = fuse.search(finalQuery);
+                    
+                    if (results.length > 0) {
+                        if (results[0].score <= MATCH_THRESHOLD) {
+                            // Нашли идеальное совпадение
+                            statusDiv.textContent = "Нашел! (Точность: " + results[0].score.toFixed(2) + ")";
+                            answerDiv.textContent = results[0].item.a;
+                            answerDiv.style.opacity = 1;
+                            
+                            clearTimeout(hideTimeout);
+                            hideTimeout = setTimeout(() => {
+                                answerDiv.style.opacity = 0;
+                                statusDiv.textContent = "Слушаю...";
+                            }, 15000);
+                        } else {
+                            // Слабое совпадение
+                            statusDiv.textContent = "Слабое совпадение (Точность " + results[0].score.toFixed(2) + ") с: " + results[0].item.q;
+                        }
                     } else {
-                        // Нашел похожее, но точность плохая
-                        statusDiv.textContent = "Слабое совпадение (Точность " + results[0].score.toFixed(2) + ") с: " + results[0].item.q;
+                        // Ничего не найдено
+                        statusDiv.textContent = "В базе нет ничего похожего";
                     }
-                } else {
-                    // Вообще ничего похожего не нашел
-                    statusDiv.textContent = "В базе нет ничего похожего на: " + transcript;
-                }
+                    
+                    // ОЧИЩАЕМ БУФЕР для следующего вопроса
+                    speechBuffer = "";
+                    
+                }, PAUSE_TIME); 
             };
         }
-    </script>
+
 </body>
 </html>
