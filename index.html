@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice OCR (ЭБ 1258.20)</title>
+    <!-- Подключаем библиотеку нечеткого поиска Fuse.js -->
+    <script src="https://cdn.jsdelivr.net/npm/fuse.js/dist/fuse.min.js"></script>
+    <style>
+        /* Темная тема, чтобы экран телефона не светил в лицо */
+        body { 
+            background-color: #121212; 
+            color: #eeeeee; 
+            font-family: Arial, sans-serif; 
+            padding: 20px; 
+            max-width: 600px; 
+            margin: 0 auto;
+        }
+        button { 
+            padding: 15px; 
+            font-size: 18px; 
+            margin-bottom: 20px; 
+            width: 100%; 
+            background-color: #333; 
+            color: white; 
+            border: 1px solid #555; 
+            border-radius: 8px; 
+        }
+        button.active { background-color: #8b0000; border-color: #ff0000; }
+        #status { font-weight: bold; color: #888; margin-bottom: 10px; }
+        #log { background: #1e1e1e; padding: 15px; border-radius: 8px; font-size: 14px; min-height: 200px; overflow-y: auto;}
+        .match { color: #4CAF50; } /* Зеленый для успешных совпадений */
+        .speech { color: #2196F3; } /* Синий для распознанной речи */
+    </style>
+</head>
+<body>
+
+    <h2>Голосовой парсер базы</h2>
+    
+    <button id="btn-listen">Начать прослушивание</button>
+    <div id="status">Статус: Микрофон выключен</div>
+    <div id="log">Лог работы появится здесь...<br><br></div>
+
+    <script>
+        // === НАСТРОЙКИ ===
+        // IP адрес твоего ESP8266 (который ты закрепил в настройках точки доступа)
+        const ESP_IP = "http://192.168.43.15"; 
+        // Минимальный порог совпадения (от 0.0 до 1.0). Меньше = строже.
+        const MATCH_THRESHOLD = 0.4; 
+
+        // Твоя база вопросов (можно выгрузить из Google Таблиц в формате JSON)
+        // val - это номер правильного ответа
+        const database = [
+            { q: "В каких электроустановках могут выполняться работы в порядке текущей эксплуатации", val: 2 },
+            { q: "Кто имеет право проводить единоличный осмотр электроустановок напряжением до 1000 В", val: 4 },
+            { q: "Каким должно быть сопротивление изоляции ручного электрифицированного инструмента", val: 1 },
+            { q: "Какая группа по электробезопасности должна быть у ответственного за безопасное производство работ", val: 3 }
+        ];
+
+        // Настройка нечеткого поиска (Fuse.js)
+        const fuseOptions = {
+            includeScore: true,
+            threshold: 0.6, // Базовый порог для библиотеки
+            keys: ['q']
+        };
+        const fuse = new Fuse(database, fuseOptions);
+
+        // Настройка Web Speech API
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert("Ваш браузер не поддерживает Web Speech API. Используйте Chrome.");
+        }
+        
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'ru-RU';
+        // Слушаем непрерывно, не отключаясь после первой фразы
+        recognition.continuous = true; 
+        // Ждем только финальных фраз (когда ты делаешь паузу), чтобы не спамить поиск обрывками
+        recognition.interimResults = false; 
+
+        // Элементы интерфейса
+        const btnListen = document.getElementById('btn-listen');
+        const statusDiv = document.getElementById('status');
+        const logDiv = document.getElementById('log');
+        let isListening = false;
+
+        function logMsg(msg, cssClass = '') {
+            logDiv.innerHTML += `<span class="${cssClass}">${msg}</span><br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        // Обработка кнопки
+        btnListen.addEventListener('click', () => {
+            if (isListening) {
+                recognition.stop();
+            } else {
+                recognition.start();
+            }
+        });
+
+        // События микрофона
+        recognition.onstart = () => {
+            isListening = true;
+            btnListen.textContent = "Остановить прослушивание";
+            btnListen.classList.add('active');
+            statusDiv.textContent = "Статус: Слушаю (говори вопрос)...";
+        };
+
+        recognition.onend = () => {
+            isListening = false;
+            btnListen.textContent = "Начать прослушивание";
+            btnListen.classList.remove('active');
+            statusDiv.textContent = "Статус: Микрофон выключен (или обрыв)";
+            
+            // Если нужно, чтобы он сам перезапускался при обрыве тишины, раскомментируй строку ниже:
+            // recognition.start(); 
+        };
+
+        recognition.onerror = (event) => {
+            logMsg(`Ошибка микрофона: ${event.error}`);
+        };
+
+        // Главная логика: когда фраза распознана
+        recognition.onresult = (event) => {
+            // Берем последнюю сказанную фразу (результат после паузы)
+            const lastResultIndex = event.results.length - 1;
+            const transcript = event.results[lastResultIndex][0].transcript.trim();
+            
+            logMsg(`Услышал: "${transcript}"`, 'speech');
+
+            // Ищем фразу в базе
+            const results = fuse.search(transcript);
+
+            if (results.length > 0) {
+                const bestMatch = results[0];
+                // Fuse.js возвращает score от 0 (идеал) до 1 (ничего общего)
+                if (bestMatch.score <= MATCH_THRESHOLD) {
+                    const answer = bestMatch.item.val;
+                    logMsg(`Нашел вопрос: "${bestMatch.item.q}"`);
+                    logMsg(`-> Отправляю ответ [ ${answer} ] на экран`, 'match');
+                    
+                    sendToESP(answer);
+                } else {
+                    logMsg(`Слабое совпадение (очки: ${bestMatch.score.toFixed(2)}). Повтори четче.`);
+                }
+            } else {
+                logMsg("В базе ничего не найдено.");
+            }
+        };
+
+        // Отправка GET-запроса на микроконтроллер
+        function sendToESP(val) {
+            // mode: 'no-cors' - КРИТИЧЕСКИ ВАЖНО! 
+            // Без него браузер заблокирует запрос к локальному IP из-за политики безопасности CORS.
+            fetch(`${ESP_IP}/ans?val=${val}`, { mode: 'no-cors' })
+                .then(() => logMsg("-> Команда успешно ушла на ESP8266"))
+                .catch(err => logMsg(`-> Ошибка сети: ${err}`));
+        }
+    </script>
+</body>
+</html>
