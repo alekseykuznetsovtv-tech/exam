@@ -1843,9 +1843,9 @@
 
        const fuse = new Fuse(database, { 
     includeScore: true, 
-    threshold: 0.8,          // Базовый порог библиотеки
+    threshold: 0.6,          // Базовый порог библиотеки
     ignoreLocation: true,    // КРИТИЧЕСКИ ВАЖНО: отключает штраф за длину предложения
-    minMatchCharLength: 5,   // Игнорировать случайные шумы короче 5 букв
+    minMatchCharLength: 2,   // Игнорировать случайные шумы короче 5 букв
     keys: ['q'] 
 });
 
