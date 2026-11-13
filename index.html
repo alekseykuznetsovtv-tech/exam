@@ -4,12 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Экзамен (Соло)</title>
-    <!-- Подключаем библиотеку поиска Fuse.js -->
     <script src="https://cdn.jsdelivr.net/npm/fuse.js/dist/fuse.min.js"></script>
     <style>
-        /* Максимально скрытный дизайн */
         body { 
-            background-color: #000000; /* Абсолютно черный фон */
+            background-color: #000000; 
             margin: 0; 
             height: 100vh; 
             display: flex; 
@@ -21,39 +19,42 @@
             user-select: none;
         }
         #answer-display {
-            color: #d2691e; /* Приглушенный оранжевый, не светит в лицо */
-            font-size: 7vw; /* Размер адаптируется под экран */
+            color: #d2691e;
+            font-size: 7vw;
             font-weight: bold;
             text-align: center;
             padding: 20px;
-            opacity: 0; /* Изначально текст скрыт */
+            opacity: 0;
             transition: opacity 0.5s ease-in-out;
             z-index: 10;
         }
-        /* Едва заметный статус в левом верхнем углу, чтобы ты понимал, что всё работает */
         #status {
             position: absolute; 
             top: 10px; 
             left: 10px; 
             font-size: 10px; 
-            color: #222222; /* Почти сливается с черным фоном */
+            color: #444444; 
             z-index: 5;
         }
     </style>
 </head>
-<!-- При клике в любое место экрана запускается микрофон -->
 <body onclick="toggleListen()">
 
     <div id="status">Нажми на экран для старта</div>
     <div id="answer-display"></div>
 
     <script>
-        // === НАСТРОЙКИ ===
-        const MATCH_THRESHOLD = 0.4; // Порог совпадения (0 - точное, 1 - вообще не то)
+        // === ПЕРЕХВАТЧИК СИНТАКСИЧЕСКИХ ОШИБОК ===
+        // Если ты криво вставил базу, выскочит окно с ошибкой
+        window.onerror = function(msg, url, line) {
+            alert("Ошибка в коде (возможно, опечатка в базе данных) на строке " + line + ":\n" + msg);
+        };
 
-        // Твоя база (заменишь этот массив на сгенерированный из Google Таблиц)
-       const database = [
-    {
+        const MATCH_THRESHOLD = 0.4;
+
+        // ВСТАВЛЯЙ СВОЮ БАЗУ СЮДА, внимательно следи за скобками [ и ];
+        const database = [
+            {
         "q": "В КАКОМ СЛУЧАЕ ЭЛЕМЕНТ ЗАЗЕМЛИТЕЛЯ ДОЛЖЕН БЫТЬ ЗАМЕНЕН?",
         "a": "Если разрушено более 50 % его сечения"
     },
@@ -1837,63 +1838,77 @@
         "q": "КАКАЯ ГРУППА ПО ЭЛЕКТРОБЕЗОПАСНОСТИ ДОЛЖНА БЫТЬ У ОТВЕТСТВЕННОГО ЗА ЭЛЕКТРОХОЗЯЙСТВО В ЭЛЕКТРОУСТАНОВКАХ НАПРЯЖЕНИЕМ ДО 1000 В?",
         "a": "Четвертая"
     }
-];
+                         ];
 
-        // Инициализация поиска
         const fuse = new Fuse(database, { includeScore: true, threshold: 0.6, keys: ['q'] });
         
-        // Настройка микрофона
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const recognition = new SpeechRecognition();
-        recognition.lang = 'ru-RU';
-        recognition.continuous = true;
-        recognition.interimResults = false;
+        let recognition;
+        try {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                alert("Твой браузер не поддерживает распознавание речи! Используй официальный Google Chrome.");
+            } else {
+                recognition = new SpeechRecognition();
+                recognition.lang = 'ru-RU';
+                recognition.continuous = true;
+                recognition.interimResults = false;
+            }
+        } catch (err) {
+            alert("Ошибка инициализации микрофона: " + err.message);
+        }
 
         let isListening = false;
         let hideTimeout;
         const statusDiv = document.getElementById('status');
         const answerDiv = document.getElementById('answer-display');
 
-        // Функция старта/остановки по тапу на экран
         function toggleListen() {
-            if (isListening) {
-                isListening = false;
-                recognition.stop();
-                statusDiv.textContent = "Остановлено";
-            } else {
-                isListening = true;
-                recognition.start();
-                statusDiv.textContent = "Слушаю...";
+            if (!recognition) {
+                alert("Микрофон не работает, смени браузер.");
+                return;
+            }
+
+            try {
+                if (isListening) {
+                    isListening = false;
+                    recognition.stop();
+                    statusDiv.textContent = "Остановлено";
+                } else {
+                    isListening = true;
+                    recognition.start();
+                    statusDiv.textContent = "Слушаю...";
+                }
+            } catch (err) {
+                alert("Ошибка при запуске: " + err.message);
             }
         }
 
-        // Автоматический перезапуск микрофона
-        // Chrome иногда сам отключает Web Speech API после долгой тишины. Этот блок вернет его к жизни.
-        recognition.onend = () => { 
-            if (isListening) {
-                recognition.start(); 
-            }
-        };
+        if (recognition) {
+            recognition.onend = () => { 
+                if (isListening) recognition.start(); 
+            };
 
-        // Логика обработки речи
-        recognition.onresult = (event) => {
-            const transcript = event.results[event.results.length - 1][0].transcript.trim();
-            
-            // Ищем совпадение в базе
-            const results = fuse.search(transcript);
-            
-            if (results.length > 0 && results[0].score <= MATCH_THRESHOLD) {
-                // Если нашли - показываем текст
-                answerDiv.textContent = results[0].item.a;
-                answerDiv.style.opacity = 1;
+            recognition.onerror = (event) => {
+                alert("Ошибка микрофона: " + event.error);
+                isListening = false;
+                statusDiv.textContent = "Ошибка: " + event.error;
+            };
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[event.results.length - 1][0].transcript.trim();
                 
-                // Прячем через 15 секунд
-                clearTimeout(hideTimeout);
-                hideTimeout = setTimeout(() => {
-                    answerDiv.style.opacity = 0;
-                }, 15000);
-            }
-        };
+                const results = fuse.search(transcript);
+                if (results.length > 0 && results[0].score <= MATCH_THRESHOLD) {
+                    answerDiv.textContent = results[0].item.a;
+                    answerDiv.style.opacity = 1;
+                    
+                    clearTimeout(hideTimeout);
+                    hideTimeout = setTimeout(() => {
+                        answerDiv.style.opacity = 0;
+                    }, 15000);
+                }
+            };
+        }
     </script>
 </body>
 </html>
