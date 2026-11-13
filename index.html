@@ -3,46 +3,63 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Микрофон (Слухач)</title>
+    <title>Экзамен (Соло)</title>
+    <!-- Подключаем библиотеку поиска Fuse.js -->
     <script src="https://cdn.jsdelivr.net/npm/fuse.js/dist/fuse.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
     <style>
-        body { background: #121212; color: #eee; font-family: sans-serif; padding: 20px; }
-        button { padding: 15px; width: 100%; font-size: 18px; background: #333; color: white; border: 1px solid #555; border-radius: 8px; margin-bottom: 20px;}
-        button.active { background: #8b0000; }
-        #log { background: #1e1e1e; padding: 15px; border-radius: 8px; min-height: 200px; font-size: 14px;}
-        .match { color: #4CAF50; }
+        /* Максимально скрытный дизайн */
+        body { 
+            background-color: #000000; /* Абсолютно черный фон */
+            margin: 0; 
+            height: 100vh; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            cursor: pointer;
+            user-select: none;
+        }
+        #answer-display {
+            color: #d2691e; /* Приглушенный оранжевый, не светит в лицо */
+            font-size: 7vw; /* Размер адаптируется под экран */
+            font-weight: bold;
+            text-align: center;
+            padding: 20px;
+            opacity: 0; /* Изначально текст скрыт */
+            transition: opacity 0.5s ease-in-out;
+            z-index: 10;
+        }
+        /* Едва заметный статус в левом верхнем углу, чтобы ты понимал, что всё работает */
+        #status {
+            position: absolute; 
+            top: 10px; 
+            left: 10px; 
+            font-size: 10px; 
+            color: #222222; /* Почти сливается с черным фоном */
+            z-index: 5;
+        }
     </style>
 </head>
-<body>
-    <h2>Слухач</h2>
-    <button id="btn-listen">Начать прослушивание</button>
-    <div id="log">Подключение к серверу...<br></div>
+<!-- При клике в любое место экрана запускается микрофон -->
+<body onclick="toggleListen()">
+
+    <div id="status">Нажми на экран для старта</div>
+    <div id="answer-display"></div>
 
     <script>
-        // Придумай свой уникальный пароль/канал, чтобы никто случайно не подключился
-        const TOPIC = "vorkuta_eb4_secret_channel_777"; 
-        const MATCH_THRESHOLD = 0.4;
+        // === НАСТРОЙКИ ===
+        const MATCH_THRESHOLD = 0.4; // Порог совпадения (0 - точное, 1 - вообще не то)
 
-        // База теперь содержит текст ответа (a), а не цифру
+        // Твоя база (заменишь этот массив на сгенерированный из Google Таблиц)
         const database = [
             { q: "В КАКОМ СЛУЧАЕ ЭЛЕМЕНТ ЗАЗЕМЛИТЕЛЯ ДОЛЖЕН БЫТЬ ЗАМЕНЕН?", a: "Если разрушено более 50 % его сечения" },
             { q: "КАКУЮ ГРУППУ ПО ЭЛЕКТРОБЕЗОПАСНОСТИ ДОЛЖНЫ ИМЕТЬ РАБОТНИКИ ИЗ ЧИСЛА ОПЕРАТИВНОГО ПЕРСОНАЛА, ЕДИНОЛИЧНО ОБСЛУЖИВАЮЩИЕ ЭЛЕКТРОУСТАНОВКИ НАПРЯЖЕНИЕМ ВЫШЕ 1000 В?", a: "Группу не ниже IV" }
         ];
 
+        // Инициализация поиска
         const fuse = new Fuse(database, { includeScore: true, threshold: 0.6, keys: ['q'] });
-        const logDiv = document.getElementById('log');
-        function logMsg(msg, cls='') { logDiv.innerHTML += `<span class="${cls}">${msg}</span><br>`; logDiv.scrollTop = logDiv.scrollHeight; }
-
-        // Настройка MQTT клиента (бесплатный сервер HiveMQ)
-        const client = new Paho.MQTT.Client("broker.hivemq.com", 8000, "/mqtt", "clientId_" + parseInt(Math.random() * 100000));
         
-        client.onConnectionLost = (responseObject) => { logMsg("Отключено от сервера. Обновите страницу."); };
-        
-        client.connect({
-            onSuccess: () => { logMsg("Успешно подключено к серверу связи!"); }
-        });
-
         // Настройка микрофона
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         const recognition = new SpeechRecognition();
@@ -51,33 +68,48 @@
         recognition.interimResults = false;
 
         let isListening = false;
-        const btnListen = document.getElementById('btn-listen');
+        let hideTimeout;
+        const statusDiv = document.getElementById('status');
+        const answerDiv = document.getElementById('answer-display');
 
-        btnListen.onclick = () => {
-            if (isListening) recognition.stop();
-            else recognition.start();
+        // Функция старта/остановки по тапу на экран
+        function toggleListen() {
+            if (isListening) {
+                isListening = false;
+                recognition.stop();
+                statusDiv.textContent = "Остановлено";
+            } else {
+                isListening = true;
+                recognition.start();
+                statusDiv.textContent = "Слушаю...";
+            }
+        }
+
+        // Автоматический перезапуск микрофона
+        // Chrome иногда сам отключает Web Speech API после долгой тишины. Этот блок вернет его к жизни.
+        recognition.onend = () => { 
+            if (isListening) {
+                recognition.start(); 
+            }
         };
 
-        recognition.onstart = () => { isListening = true; btnListen.textContent = "Слушаю..."; btnListen.classList.add('active'); };
-        recognition.onend = () => { isListening = false; btnListen.textContent = "Начать прослушивание"; btnListen.classList.remove('active'); };
-        
+        // Логика обработки речи
         recognition.onresult = (event) => {
             const transcript = event.results[event.results.length - 1][0].transcript.trim();
-            logMsg(`Услышал: "${transcript}"`);
-
+            
+            // Ищем совпадение в базе
             const results = fuse.search(transcript);
+            
             if (results.length > 0 && results[0].score <= MATCH_THRESHOLD) {
-                const answerText = results[0].item.a;
-                logMsg(`Нашел ответ: ${answerText}`, 'match');
+                // Если нашли - показываем текст
+                answerDiv.textContent = results[0].item.a;
+                answerDiv.style.opacity = 1;
                 
-                // Отправляем текст ответа на второй телефон
-                if (client.isConnected()) {
-                    const message = new Paho.MQTT.Message(answerText);
-                    message.destinationName = TOPIC;
-                    client.send(message);
-                }
-            } else {
-                logMsg("В базе нет совпадений.");
+                // Прячем через 15 секунд
+                clearTimeout(hideTimeout);
+                hideTimeout = setTimeout(() => {
+                    answerDiv.style.opacity = 0;
+                }, 15000);
             }
         };
     </script>
